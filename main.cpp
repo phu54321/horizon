@@ -31,20 +31,22 @@ void deleteTrayIcon(HWND hWnd) {
 }
 
 bool lButtonClicked = false;
+POINT oldMousePoint;
 
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
+        POINT currentMousePoint = oldMousePoint;
+        auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
+        oldMousePoint = params->pt;
+
         if (wParam == WM_LBUTTONDOWN) {
             lButtonClicked = true;
         } else if (wParam == WM_LBUTTONUP) {
             lButtonClicked = false;
         } else if (wParam == WM_MOUSEMOVE) {
             if (lButtonClicked && clipped) {
-                auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
-                POINT currentPos;
-                GetCursorPos(&currentPos);
-                auto dx = params->pt.x - currentPos.x;
-                auto dy = params->pt.y - currentPos.y;
+                auto dx = params->pt.x - currentMousePoint.x;
+                auto dy = params->pt.y - currentMousePoint.y;
 
                 if (dy != 0) {
                     INPUT input = {};
