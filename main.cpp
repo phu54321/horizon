@@ -5,11 +5,9 @@ bool clipped = false;
 HHOOK hMouseHook;
 HHOOK hKeyboardhook;
 
-DWORD endTime;
-
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
-        if (clipped && GetTickCount() < endTime) {
+        if (clipped) {
             if (wParam == WM_MOUSEMOVE) {
                 auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
                 POINT currentPos;
@@ -36,7 +34,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 }
 
 
-int hotkeyVKCode[] = { VK_LSHIFT, VK_LCONTROL };
+int hotkeyVKCode[] = { VK_CAPITAL };
 constexpr int hotkeySize = sizeof(hotkeyVKCode) / sizeof(int);
 bool hotkeyPressed[hotkeySize] = {};
 
@@ -45,36 +43,44 @@ LRESULT CALLBACK KeyEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         auto params = reinterpret_cast<LPKBDLLHOOKSTRUCT>(lParam);
         if (wParam == WM_KEYDOWN) {
+            bool processed = false;
             for (int i = 0 ; i < hotkeySize ; i++) {
                 if (params->vkCode == hotkeyVKCode[i]) {
                     hotkeyPressed[i] = true;
+                    processed  = true;
                     break;
                 }
             }
 
-            int pressedCount = 0;
-            for (int i = 0 ; i < hotkeySize ; i++) {
-                if (hotkeyPressed[i]) pressedCount++;
-            }
-            if (pressedCount == hotkeySize) {
-                clipped = true;
-                printf("Clipped\n");
+            if (processed) {
+                int pressedCount = 0;
+                for (int i = 0; i < hotkeySize; i++) {
+                    if (hotkeyPressed[i]) pressedCount++;
+                }
+                if (pressedCount == hotkeySize) {
+                    clipped = true;
+                }
+                return 1;
             }
         } else if (wParam == WM_KEYUP) {
+            bool processed = false;
             for (int i = 0 ; i < hotkeySize ; i++) {
                 if (params->vkCode == hotkeyVKCode[i]) {
                     hotkeyPressed[i] = false;
+                    processed = true;
                     break;
                 }
             }
 
-            int pressedCount = 0;
-            for (int i = 0 ; i < hotkeySize ; i++) {
-                if (hotkeyPressed[i]) pressedCount++;
-            }
-            if (pressedCount < hotkeySize) {
-                clipped = false;
-                printf("Unclipped\n");
+            if (processed) {
+                int pressedCount = 0;
+                for (int i = 0; i < hotkeySize; i++) {
+                    if (hotkeyPressed[i]) pressedCount++;
+                }
+                if (pressedCount < hotkeySize) {
+                    clipped = false;
+                }
+                return 1;
             }
         }
     }
@@ -86,8 +92,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) MouseEvent, hInstance, 0);
     hKeyboardhook = SetWindowsHookEx(WH_KEYBOARD_LL, (HOOKPROC) KeyEvent, hInstance, 0);
-
-    endTime = GetTickCount() + 10000;
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0) > 0) {
