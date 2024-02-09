@@ -173,6 +173,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
     SetProcessDPIAware();
 
+    auto mutex = CreateMutex(nullptr, TRUE, TEXT("Global\\trgksoft_Horizon"));
+    if (!mutex || GetLastError()) {
+        MessageBox(nullptr, TEXT("Another instance already running."), TEXT("Error"), MB_OK);
+        return 0;
+    }
+
+
     WNDCLASS wndClass;
     memset(&wndClass, 0, sizeof(WNDCLASS));
     wndClass.hInstance = hInstance;
@@ -201,6 +208,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+
+    CloseHandle(mutex);
 
     return 0;
 }
