@@ -1,10 +1,12 @@
 #include <windows.h>
 #include <tchar.h>
 #include "resource.h"
+#include "version.h"
 
 #define TRAY_ICON_ID 12567
 #define TRAY_NOTIFY (WM_APP + 100)
 #define MENU_QUIT_MESSAGE 0x101
+#define MENU_ABOUT_MESSAGE 0x102
 
 bool clipped = false;
 HHOOK hMouseHook;
@@ -18,7 +20,7 @@ void addTrayIcon(HINSTANCE hInstance, HWND hWnd) {
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = TRAY_NOTIFY;
     nid.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
-    _tcsncpy(nid.szTip, TEXT("Horizon"), 128);
+    _tcsncpy(nid.szTip, TEXT("Horizon - Mouse moves horizontally"), 128);
     Shell_NotifyIcon(NIM_ADD, &nid);
 }
 
@@ -51,7 +53,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
                 if (dy != 0) {
                     INPUT input = {};
                     input.type = INPUT_MOUSE;
-                    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK;
+                    input.mi.dwFlags = MOUSEEVENTF_MOVE;
                     input.mi.dx = dx;
                     input.mi.dy = 0;
                     input.mi.time = params->time;
@@ -121,6 +123,47 @@ LRESULT CALLBACK KeyEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 }
 
 
+INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg,
+                                 UINT message,
+                                 WPARAM wParam,
+                                 LPARAM lParam) {
+    switch (message) {
+        case WM_INITDIALOG: {
+            auto hIcon = (HICON) LoadImageW(
+                    GetModuleHandleW(NULL),
+                    MAKEINTRESOURCEW(IDI_ICON),
+                    IMAGE_ICON,
+                    0, 0, 0);
+            if (hIcon) {
+                SendMessage(hwndDlg, WM_SETICON, ICON_SMALL, (LPARAM) hIcon);
+            }
+            auto versionText = TEXT("Horizon ") SPRODUCT_VERSION;
+            SetDlgItemText(hwndDlg, IDC_VERSIONTEXT, versionText);
+            return TRUE;
+        }
+
+        case WM_CLOSE:
+        case WM_DESTROY:
+            EndDialog(hwndDlg, 0);
+            return TRUE;
+
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDOK:
+                case IDCANCEL:
+                    EndDialog(hwndDlg, 0);
+                    return TRUE;
+
+                case IDB_GITHUB_URL:
+                    ShellExecute(NULL, "open", "https://github.com/phu54321", NULL, NULL, SW_SHOWNORMAL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_CREATE) {
         auto hInstance = (HINSTANCE) GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
@@ -140,6 +183,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     } else if (msg == TRAY_NOTIFY) {
         if (wParam == TRAY_ICON_ID && lParam == WM_RBUTTONUP) {
             auto hMenu = CreateMenu();
+            AppendMenu(hMenu, MF_STRING, MENU_ABOUT_MESSAGE, TEXT("About"));
             AppendMenu(hMenu, MF_STRING, MENU_QUIT_MESSAGE, TEXT("Quit"));
 
             auto hMenubar = CreateMenu();
@@ -163,6 +207,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (wmId == MENU_QUIT_MESSAGE) {
             DestroyWindow(hWnd);
             return 0;
+        } else if (wmId == MENU_ABOUT_MESSAGE) {
+            auto hInstance = (HINSTANCE) GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
+            DialogBox(hInstance, MAKEINTRESOURCE(IDD_ABOUT), hWnd, AboutDialogProc);
+            return 0;
         }
     }
 
@@ -175,7 +223,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     auto mutex = CreateMutex(nullptr, TRUE, TEXT("Global\\trgksoft_Horizon"));
     if (!mutex || GetLastError()) {
-        MessageBox(nullptr, TEXT("Another instance already running."), TEXT("Error"), MB_OK);
+        MessageBox(nullptr, TEXT("Another instance already running."), TEXT("Horizon"), MB_OK);
         return 0;
     }
 
