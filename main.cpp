@@ -2,6 +2,7 @@
 #include <tchar.h>
 #include "resource.h"
 #include "version.h"
+#include <stdio.h>
 
 #define TRAY_ICON_ID 12567
 #define TRAY_NOTIFY (WM_APP + 100)
@@ -34,34 +35,68 @@ void deleteTrayIcon(HWND hWnd) {
 
 bool lButtonClicked = false;
 POINT oldMousePoint;
+LONG dxSum = 0;
+LONG dySum = 0;
+const int moveThreshold = 3;
+
+void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwExtraInfo) {
+//    printf("dxSum %ld dySum %ld\n", dx, dy);
+    INPUT input = {};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = MOUSEEVENTF_MOVE;
+    input.mi.dx = dx;
+    input.mi.dy = dy;
+    input.mi.time = time;
+    input.mi.mouseData = mouseData;
+    input.mi.dwExtraInfo = dwExtraInfo;
+    SendInput(1, &input, sizeof(INPUT));
+}
 
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         POINT currentMousePoint = oldMousePoint;
         auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
         oldMousePoint = params->pt;
+//        printf("[1] oldX %ld oldY %ld newX %ld newY %ld\n", currentMousePoint.x, currentMousePoint.y, params->pt.x,
+//               params->pt.y);
 
         if (wParam == WM_LBUTTONDOWN) {
             lButtonClicked = true;
+            dxSum = dySum = 0;
         } else if (wParam == WM_LBUTTONUP) {
+            if (dxSum != 0 || dySum != 0) {
+                auto absDxSum = abs(dxSum);
+                auto absDySum = abs(dySum);
+                if (absDxSum > absDySum) {
+                    sendMouseMoveEvent(dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
+                } else if (absDySum > absDxSum) {
+                    sendMouseMoveEvent(0, dySum, params->time, params->mouseData, params->dwExtraInfo);
+                } else {
+                    sendMouseMoveEvent(dxSum, dySum, params->time, params->mouseData, params->dwExtraInfo);
+                }
+                dxSum = dySum = 0;
+            }
             lButtonClicked = false;
         } else if (wParam == WM_MOUSEMOVE) {
-            if (lButtonClicked && clipped) {
+            if (params->flags & LLMHF_INJECTED) {}
+            else if (lButtonClicked && clipped) {
+//                printf("[2] oldX %ld oldY %ld newX %ld newY %ld\n", currentMousePoint.x, currentMousePoint.y,
+//                       params->pt.x, params->pt.y);
                 auto dx = params->pt.x - currentMousePoint.x;
                 auto dy = params->pt.y - currentMousePoint.y;
+                dxSum += dx;
+                dySum += dy;
 
-                if (dy != 0) {
-                    INPUT input = {};
-                    input.type = INPUT_MOUSE;
-                    input.mi.dwFlags = MOUSEEVENTF_MOVE;
-                    input.mi.dx = dx;
-                    input.mi.dy = 0;
-                    input.mi.time = params->time;
-                    input.mi.mouseData = params->mouseData;
-                    input.mi.dwExtraInfo = params->dwExtraInfo;
-                    SendInput(1, &input, sizeof(INPUT));
-                    return 1;
+                auto absDxSum = abs(dxSum);
+                auto absDySum = abs(dySum);
+                if (absDxSum > absDySum && absDxSum > moveThreshold) {
+                    sendMouseMoveEvent(dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
+                    dxSum = dySum = 0;
+                } else if (absDySum > absDxSum && absDySum > moveThreshold) {
+                    sendMouseMoveEvent(0, dySum, params->time, params->mouseData, params->dwExtraInfo);
+                    dxSum = dySum = 0;
                 }
+                return 1;
             }
         }
     }
