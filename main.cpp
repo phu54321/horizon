@@ -37,10 +37,14 @@ bool lButtonClicked = false;
 POINT oldMousePoint;
 LONG dxSum = 0;
 LONG dySum = 0;
-const int moveThreshold = 3;
+const int moveThreshold = 4;
+enum Mode {
+    NONE,
+    VERTICAL,
+    HORIZONTAL
+} clipMode;
 
 void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwExtraInfo) {
-//    printf("dxSum %ld dySum %ld\n", dx, dy);
     INPUT input = {};
     input.type = INPUT_MOUSE;
     input.mi.dwFlags = MOUSEEVENTF_MOVE;
@@ -52,36 +56,42 @@ void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwE
     SendInput(1, &input, sizeof(INPUT));
 }
 
+void resetDxDySum(DWORD time) {
+    if (dxSum != 0 || dySum != 0) {
+        if (!clipped) {
+            sendMouseMoveEvent(dxSum, dySum, time, 0, 0);
+        }
+        else {
+            auto absDxSum = abs(dxSum);
+            auto absDySum = abs(dySum);
+            if (absDxSum > absDySum) {
+                sendMouseMoveEvent(dxSum, 0, time, 0, 0);
+            } else if (absDySum > absDxSum) {
+                sendMouseMoveEvent(0, dySum, time, 0, 0);
+            } else {
+                sendMouseMoveEvent(dxSum, dySum, time, 0, 0);
+            }
+        }
+        dxSum = dySum = 0;
+    }
+}
+
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         POINT currentMousePoint = oldMousePoint;
         auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
         oldMousePoint = params->pt;
-//        printf("[1] oldX %ld oldY %ld newX %ld newY %ld\n", currentMousePoint.x, currentMousePoint.y, params->pt.x,
-//               params->pt.y);
 
         if (wParam == WM_LBUTTONDOWN) {
             lButtonClicked = true;
             dxSum = dySum = 0;
+            clipMode = Mode::NONE;
         } else if (wParam == WM_LBUTTONUP) {
-            if (dxSum != 0 || dySum != 0) {
-                auto absDxSum = abs(dxSum);
-                auto absDySum = abs(dySum);
-                if (absDxSum > absDySum) {
-                    sendMouseMoveEvent(dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
-                } else if (absDySum > absDxSum) {
-                    sendMouseMoveEvent(0, dySum, params->time, params->mouseData, params->dwExtraInfo);
-                } else {
-                    sendMouseMoveEvent(dxSum, dySum, params->time, params->mouseData, params->dwExtraInfo);
-                }
-                dxSum = dySum = 0;
-            }
+            resetDxDySum(params->time);
             lButtonClicked = false;
         } else if (wParam == WM_MOUSEMOVE) {
             if (params->flags & LLMHF_INJECTED) {}
             else if (lButtonClicked && clipped) {
-//                printf("[2] oldX %ld oldY %ld newX %ld newY %ld\n", currentMousePoint.x, currentMousePoint.y,
-//                       params->pt.x, params->pt.y);
                 auto dx = params->pt.x - currentMousePoint.x;
                 auto dy = params->pt.y - currentMousePoint.y;
                 dxSum += dx;
@@ -89,12 +99,16 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 
                 auto absDxSum = abs(dxSum);
                 auto absDySum = abs(dySum);
-                if (absDxSum > absDySum && absDxSum > moveThreshold) {
+                if (clipMode == Mode::HORIZONTAL ||
+                    (clipMode == Mode::NONE && absDxSum > absDySum && absDxSum > moveThreshold)) {
                     sendMouseMoveEvent(dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
                     dxSum = dySum = 0;
-                } else if (absDySum > absDxSum && absDySum > moveThreshold) {
+                    clipMode = Mode::HORIZONTAL;
+                } else if (clipMode == Mode::VERTICAL ||
+                           (clipMode == Mode::NONE && absDySum > absDxSum && absDySum > moveThreshold)) {
                     sendMouseMoveEvent(0, dySum, params->time, params->mouseData, params->dwExtraInfo);
                     dxSum = dySum = 0;
+                    clipMode = Mode::VERTICAL;
                 }
                 return 1;
             }
@@ -128,7 +142,10 @@ LRESULT CALLBACK KeyEvent(int nCode, WPARAM wParam, LPARAM lParam) {
                     if (hotkeyPressed[i]) pressedCount++;
                 }
                 if (pressedCount == hotkeySize) {
-                    clipped = true;
+                    if (!clipped) {
+                        clipMode = Mode::NONE;
+                        clipped = true;
+                    }
                 }
                 return 1;
             }
@@ -148,10 +165,13 @@ LRESULT CALLBACK KeyEvent(int nCode, WPARAM wParam, LPARAM lParam) {
                     if (hotkeyPressed[i]) pressedCount++;
                 }
                 if (pressedCount < hotkeySize) {
-                    clipped = false;
+                    if (clipped) {
+                    }
+                    return 1;
                 }
-                return 1;
-            }
+                        resetDxDySum(params->time);
+                    }
+                    clipped = false;
         }
     }
     return CallNextHookEx(hMouseHook, nCode, wParam, lParam);
