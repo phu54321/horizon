@@ -2,47 +2,25 @@
 #include <tchar.h>
 #include "resource.h"
 #include "version.h"
-#include <stdio.h>
+#include "keyHook.h"
+#include "tray.h"
 
 #define TRAY_ICON_ID 12567
 #define TRAY_NOTIFY (WM_APP + 100)
 #define MENU_QUIT_MESSAGE 0x101
 #define MENU_ABOUT_MESSAGE 0x102
 
-bool clipped = false;
-HHOOK hMouseHook;
-HHOOK hKeyboardhook;
-
-void addTrayIcon(HINSTANCE hInstance, HWND hWnd) {
-    NOTIFYICONDATA nid = {0};
-    nid.cbSize = sizeof(nid);
-    nid.hWnd = hWnd;
-    nid.uID = TRAY_ICON_ID;
-    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-    nid.uCallbackMessage = TRAY_NOTIFY;
-    nid.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
-    _tcsncpy(nid.szTip, TEXT("Horizon - Mouse moves horizontally"), 128);
-    Shell_NotifyIcon(NIM_ADD, &nid);
-}
-
-void deleteTrayIcon(HWND hWnd) {
-    NOTIFYICONDATA nid = {0};
-    nid.cbSize = sizeof(nid);
-    nid.hWnd = hWnd;
-    nid.uID = TRAY_ICON_ID;
-    Shell_NotifyIcon(NIM_DELETE, &nid);
-}
-
-bool lButtonClicked = false;
-POINT oldMousePoint;
 LONG dxSum = 0;
 LONG dySum = 0;
 const int moveThreshold = 4;
-enum Mode {
+enum ClipMode {
     NONE,
     VERTICAL,
     HORIZONTAL
 } clipMode;
+
+bool _shouldClip = false;
+bool _isLButtonPressed = true;
 
 void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwExtraInfo) {
     INPUT input = {};
@@ -58,7 +36,7 @@ void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwE
 
 void resetDxDySum(DWORD time) {
     if (dxSum != 0 || dySum != 0) {
-        if (!clipped) {
+        if (!_isCapsPressed) {
             sendMouseMoveEvent(dxSum, dySum, time, 0, 0);
         }
         else {
@@ -76,22 +54,31 @@ void resetDxDySum(DWORD time) {
     }
 }
 
+HHOOK _hMouseHook;
+
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
+    static POINT oldMousePoint;
+
     if (nCode >= 0) {
         POINT currentMousePoint = oldMousePoint;
         auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
         oldMousePoint = params->pt;
 
-        if (wParam == WM_LBUTTONDOWN) {
-            lButtonClicked = true;
-            dxSum = dySum = 0;
-            clipMode = Mode::NONE;
-        } else if (wParam == WM_LBUTTONUP) {
-            resetDxDySum(params->time);
-            lButtonClicked = false;
+        if (wParam == WM_LBUTTONDOWN && !_isLButtonPressed) {
+            _isLButtonPressed = true;
+            _shouldClip = _isCapsPressed;
+            if (_shouldClip) {
+                dxSum = dySum = 0;
+                clipMode = ClipMode::NONE;
+            }
+        } else if (wParam == WM_LBUTTONUP && _isLButtonPressed) {
+            if (_shouldClip) {
+                resetDxDySum(params->time);
+            }
+            _isLButtonPressed = false;
         } else if (wParam == WM_MOUSEMOVE) {
             if (params->flags & LLMHF_INJECTED) {}
-            else if (lButtonClicked && clipped) {
+            else if (_isLButtonPressed && _isCapsPressed) {
                 auto dx = params->pt.x - currentMousePoint.x;
                 auto dy = params->pt.y - currentMousePoint.y;
                 dxSum += dx;
@@ -99,124 +86,25 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 
                 auto absDxSum = abs(dxSum);
                 auto absDySum = abs(dySum);
-                if (clipMode == Mode::HORIZONTAL ||
-                    (clipMode == Mode::NONE && absDxSum > absDySum && absDxSum > moveThreshold)) {
+                if (clipMode == ClipMode::HORIZONTAL ||
+                    (clipMode == ClipMode::NONE && absDxSum > absDySum && absDxSum > moveThreshold)) {
                     sendMouseMoveEvent(dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
                     dxSum = dySum = 0;
-                    clipMode = Mode::HORIZONTAL;
-                } else if (clipMode == Mode::VERTICAL ||
-                           (clipMode == Mode::NONE && absDySum > absDxSum && absDySum > moveThreshold)) {
+                    clipMode = ClipMode::HORIZONTAL;
+                } else if (clipMode == ClipMode::VERTICAL ||
+                           (clipMode == ClipMode::NONE && absDySum > absDxSum && absDySum > moveThreshold)) {
                     sendMouseMoveEvent(0, dySum, params->time, params->mouseData, params->dwExtraInfo);
                     dxSum = dySum = 0;
-                    clipMode = Mode::VERTICAL;
+                    clipMode = ClipMode::VERTICAL;
                 }
                 return 1;
             }
         }
     }
-    return CallNextHookEx(hMouseHook, nCode, wParam, lParam);
+    return CallNextHookEx(_hMouseHook, nCode, wParam, lParam);
 }
 
 
-int hotkeyVKCode[] = {VK_CAPITAL};
-constexpr int hotkeySize = sizeof(hotkeyVKCode) / sizeof(int);
-bool hotkeyPressed[hotkeySize] = {};
-
-
-LRESULT CALLBACK KeyEvent(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode >= 0) {
-        auto params = reinterpret_cast<LPKBDLLHOOKSTRUCT>(lParam);
-        if (wParam == WM_KEYDOWN) {
-            bool processed = false;
-            for (int i = 0; i < hotkeySize; i++) {
-                if (params->vkCode == hotkeyVKCode[i]) {
-                    hotkeyPressed[i] = true;
-                    processed = true;
-                    break;
-                }
-            }
-
-            if (processed) {
-                int pressedCount = 0;
-                for (int i = 0; i < hotkeySize; i++) {
-                    if (hotkeyPressed[i]) pressedCount++;
-                }
-                if (pressedCount == hotkeySize) {
-                    if (!clipped) {
-                        clipMode = Mode::NONE;
-                        clipped = true;
-                    }
-                }
-                return 1;
-            }
-        } else if (wParam == WM_KEYUP) {
-            bool processed = false;
-            for (int i = 0; i < hotkeySize; i++) {
-                if (params->vkCode == hotkeyVKCode[i]) {
-                    hotkeyPressed[i] = false;
-                    processed = true;
-                    break;
-                }
-            }
-
-            if (processed) {
-                int pressedCount = 0;
-                for (int i = 0; i < hotkeySize; i++) {
-                    if (hotkeyPressed[i]) pressedCount++;
-                }
-                if (pressedCount < hotkeySize) {
-                    if (clipped) {
-                    }
-                    return 1;
-                }
-                        resetDxDySum(params->time);
-                    }
-                    clipped = false;
-        }
-    }
-    return CallNextHookEx(hMouseHook, nCode, wParam, lParam);
-}
-
-
-INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg,
-                                 UINT message,
-                                 WPARAM wParam,
-                                 LPARAM lParam) {
-    switch (message) {
-        case WM_INITDIALOG: {
-            auto hIcon = (HICON) LoadImageW(
-                    GetModuleHandleW(NULL),
-                    MAKEINTRESOURCEW(IDI_ICON),
-                    IMAGE_ICON,
-                    0, 0, 0);
-            if (hIcon) {
-                SendMessage(hwndDlg, WM_SETICON, ICON_SMALL, (LPARAM) hIcon);
-            }
-            auto versionText = TEXT("Horizon ") SPRODUCT_VERSION;
-            SetDlgItemText(hwndDlg, IDC_VERSIONTEXT, versionText);
-            return TRUE;
-        }
-
-        case WM_CLOSE:
-        case WM_DESTROY:
-            EndDialog(hwndDlg, 0);
-            return TRUE;
-
-        case WM_COMMAND:
-            switch (LOWORD(wParam)) {
-                case IDOK:
-                case IDCANCEL:
-                    EndDialog(hwndDlg, 0);
-                    return TRUE;
-
-                case IDB_GITHUB_URL:
-                    ShellExecute(NULL, "open", "https://github.com/phu54321", NULL, NULL, SW_SHOWNORMAL);
-                    return TRUE;
-            }
-            break;
-    }
-    return FALSE;
-}
 
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -224,49 +112,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         auto hInstance = (HINSTANCE) GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
         addTrayIcon(hInstance, hWnd);
 
-        hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) MouseEvent, hInstance, 0);
-        hKeyboardhook = SetWindowsHookEx(WH_KEYBOARD_LL, (HOOKPROC) KeyEvent, hInstance, 0);
+        _hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) MouseEvent, hInstance, 0);
+        registerKeyboardHook(hInstance);
 
         return 0;
     } else if (msg == WM_DESTROY) {
-        UnhookWindowsHookEx(hMouseHook);
-        UnhookWindowsHookEx(hKeyboardhook);
+        unregisterKeyboardHook();
+        UnhookWindowsHookEx(_hMouseHook);
 
         deleteTrayIcon(hWnd);
         PostQuitMessage(0);
         return 0;
-    } else if (msg == TRAY_NOTIFY) {
-        if (wParam == TRAY_ICON_ID && lParam == WM_RBUTTONUP) {
-            auto hMenu = CreateMenu();
-            AppendMenu(hMenu, MF_STRING, MENU_ABOUT_MESSAGE, TEXT("About"));
-            AppendMenu(hMenu, MF_STRING, MENU_QUIT_MESSAGE, TEXT("Quit"));
-
-            auto hMenubar = CreateMenu();
-            AppendMenu(hMenubar, MF_POPUP, (UINT_PTR) hMenu, TEXT("Menu"));
-
-            auto hPopupMenu = GetSubMenu(hMenubar, 0);
-            POINT pt;
-            GetCursorPos(&pt);
-            SetForegroundWindow(hWnd);
-            TrackPopupMenu(hPopupMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
-            SetForegroundWindow(hWnd);
-            PostMessage(hWnd, WM_NULL, 0, 0);
-
-            DestroyMenu(hMenu);
-            DestroyMenu(hMenubar);
-
-            return 0;
-        }
-    } else if (msg == WM_COMMAND) {
-        auto wmId = LOWORD(wParam);
-        if (wmId == MENU_QUIT_MESSAGE) {
-            DestroyWindow(hWnd);
-            return 0;
-        } else if (wmId == MENU_ABOUT_MESSAGE) {
-            auto hInstance = (HINSTANCE) GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
-            DialogBox(hInstance, MAKEINTRESOURCE(IDD_ABOUT), hWnd, AboutDialogProc);
-            return 0;
-        }
+    } else if (processTrayMessage(hWnd, msg, wParam, lParam)) {
+        return 0;
     }
 
     return DefWindowProc(hWnd, msg, wParam, lParam);
