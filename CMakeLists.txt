@@ -8,3 +8,5 @@ add_executable(Horizon WIN32 main.cpp resource.rc
         keyHook.h
         tray.cpp
         tray.h)
+
+set_property(TARGET Horizon PROPERTY VS_DPI_AWARE "PerMonitor")
