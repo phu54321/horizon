@@ -39,7 +39,7 @@ INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg,
     switch (message) {
         case WM_INITDIALOG: {
             auto hIcon = (HICON) LoadImageW(
-                    GetModuleHandleW(NULL),
+                    GetModuleHandleW(nullptr),
                     MAKEINTRESOURCEW(IDI_ICON),
                     IMAGE_ICON,
                     0, 0, 0);
@@ -64,10 +64,12 @@ INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg,
                     return TRUE;
 
                 case IDB_GITHUB_URL:
-                    ShellExecute(NULL, "open", "https://github.com/phu54321", NULL, NULL, SW_SHOWNORMAL);
+                    ShellExecute(nullptr, "open", "https://github.com/phu54321", nullptr, nullptr, SW_SHOWNORMAL);
                     return TRUE;
             }
             break;
+
+        default:;
     }
     return FALSE;
 }
@@ -86,7 +88,7 @@ BOOL processTrayMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             POINT pt;
             GetCursorPos(&pt);
             SetForegroundWindow(hWnd);
-            TrackPopupMenu(hPopupMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+            TrackPopupMenu(hPopupMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, nullptr);
             SetForegroundWindow(hWnd);
             PostMessage(hWnd, WM_NULL, 0, 0);
 

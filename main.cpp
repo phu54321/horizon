@@ -11,8 +11,6 @@
 #define MENU_QUIT_MESSAGE 0x101
 #define MENU_ABOUT_MESSAGE 0x102
 
-#include <stdio.h>
-
 const int moveThreshold = 5;
 enum ClipMode {
     NONE,
@@ -20,8 +18,8 @@ enum ClipMode {
     HORIZONTAL
 } clipMode;
 
-bool _shouldClip = false;
-bool _isLButtonPressed = true;
+bool g_shouldClip = false;
+bool g_isLButtonPressed = true;
 
 void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwExtraInfo) {
 //    printf(" - sendMouseMoveEvent: dx %ld dy %ld\n", dx, dy);
@@ -36,30 +34,30 @@ void sendMouseMoveEvent(LONG dx, LONG dy, DWORD time, DWORD mouseData, DWORD dwE
     SendInput(1, &input, sizeof(INPUT));
 }
 
-LONG _dxSum = 0;
-LONG _dySum = 0;
+static LONG g_dxSum = 0;
+static LONG g_dySum = 0;
 //DWORD startTime;
 
 void resetDxDySum(DWORD time) {
-    if (_dxSum != 0 || _dySum != 0) {
-        if (!_isCapsPressed) {
-            sendMouseMoveEvent(_dxSum, _dySum, time, 0, 0);
+    if (g_dxSum != 0 || g_dySum != 0) {
+        if (!g_isCapsPressed) {
+            sendMouseMoveEvent(g_dxSum, g_dySum, time, 0, 0);
         } else {
-            auto absDxSum = abs(_dxSum);
-            auto absDySum = abs(_dySum);
+            auto absDxSum = abs(g_dxSum);
+            auto absDySum = abs(g_dySum);
             if (absDxSum > absDySum) {
-                sendMouseMoveEvent(_dxSum, 0, time, 0, 0);
+                sendMouseMoveEvent(g_dxSum, 0, time, 0, 0);
             } else if (absDySum > absDxSum) {
-                sendMouseMoveEvent(0, _dySum, time, 0, 0);
+                sendMouseMoveEvent(0, g_dySum, time, 0, 0);
             } else {
-                sendMouseMoveEvent(_dxSum, _dySum, time, 0, 0);
+                sendMouseMoveEvent(g_dxSum, g_dySum, time, 0, 0);
             }
         }
-        _dxSum = _dySum = 0;
+        g_dxSum = g_dySum = 0;
     }
 }
 
-HHOOK _hMouseHook;
+static HHOOK g_hMouseHook;
 
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     static POINT oldMousePoint;
@@ -72,22 +70,22 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
         auto params = reinterpret_cast<LPMSLLHOOKSTRUCT>(lParam);
 //        printf("[%4d %8lu] (%ld, %ld) -> (%ld, %ld)\n", thisInvocation, currentTime, oldMousePoint.x, oldMousePoint.y, params->pt.x, params->pt.y);
 
-        if (wParam == WM_LBUTTONDOWN && !_isLButtonPressed) {
+        if (wParam == WM_LBUTTONDOWN && !g_isLButtonPressed) {
 //            printf("[%4d %8lu] - [lbd]\n");
-            _isLButtonPressed = true;
-            _shouldClip = _isCapsPressed;
-            if (_shouldClip) {
-                _dxSum = _dySum = 0;
+            g_isLButtonPressed = true;
+            g_shouldClip = g_isCapsPressed;
+            if (g_shouldClip) {
+                g_dxSum = g_dySum = 0;
                 clipMode = ClipMode::NONE;
             }
             oldMousePoint = params->pt;
 //            printf("[%4d %8lu] - omp = (%ld, %ld)\n", thisInvocation, currentTime, oldMousePoint.x, oldMousePoint.y);
-        } else if (wParam == WM_LBUTTONUP && _isLButtonPressed) {
+        } else if (wParam == WM_LBUTTONUP && g_isLButtonPressed) {
 //            printf("[%4d %8lu] - [lbu]\n");
-            if (_shouldClip) {
+            if (g_shouldClip) {
                 resetDxDySum(params->time);
             }
-            _isLButtonPressed = false;
+            g_isLButtonPressed = false;
             oldMousePoint = params->pt;
 //            printf("[%4d %8lu] - omp = (%ld, %ld)\n", thisInvocation, currentTime, oldMousePoint.x, oldMousePoint.y);
 
@@ -96,16 +94,16 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
                 oldMousePoint = params->pt;
             } else {
 //                printf("[%4d %8lu] - [lbm]\n");
-                if (_isLButtonPressed && _isCapsPressed) {
+                if (g_isLButtonPressed && g_isCapsPressed) {
 //                    printf("[%4d %8lu] - [captured]\n");
                     auto dx = params->pt.x - oldMousePoint.x;
                     auto dy = params->pt.y - oldMousePoint.y;
-                    _dxSum += dx;
-                    _dySum += dy;
-//                    printf("[%4d %8lu] %ld %ld %ld %ld\n", thisInvocation, currentTime, dx, dy, _dxSum, _dySum);
+                    g_dxSum += dx;
+                    g_dySum += dy;
+//                    printf("[%4d %8lu] %ld %ld %ld %ld\n", thisInvocation, currentTime, dx, dy, g_dxSum, g_dySum);
 
-                    auto absDxSum = abs(_dxSum);
-                    auto absDySum = abs(_dySum);
+                    auto absDxSum = abs(g_dxSum);
+                    auto absDySum = abs(g_dySum);
 
                     if (clipMode == NONE) {
                         if (absDxSum > absDySum && absDxSum > moveThreshold) {
@@ -116,15 +114,15 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
                     }
 
                     if (clipMode == ClipMode::HORIZONTAL) {
-                        sendMouseMoveEvent(_dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
+                        sendMouseMoveEvent(g_dxSum, 0, params->time, params->mouseData, params->dwExtraInfo);
 //                        printf("[%4d %8lu] - omp = (%ld, %ld) [+dxSum]\n", thisInvocation, currentTime, oldMousePoint.x,
 //                               oldMousePoint.y);
-                        _dxSum = _dySum = 0;
+                        g_dxSum = g_dySum = 0;
                     } else if (clipMode == ClipMode::VERTICAL) {
-                        sendMouseMoveEvent(0, _dySum, params->time, params->mouseData, params->dwExtraInfo);
+                        sendMouseMoveEvent(0, g_dySum, params->time, params->mouseData, params->dwExtraInfo);
 //                        printf("[%4d %8lu] - omp = (%ld, %ld) [+dySum]\n", thisInvocation, currentTime, oldMousePoint.x,
 //                               oldMousePoint.y);
-                        _dxSum = _dySum = 0;
+                        g_dxSum = g_dySum = 0;
                     }
                     return 1;
                 }
@@ -132,7 +130,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
             }
         }
     }
-    return CallNextHookEx(_hMouseHook, nCode, wParam, lParam);
+    return CallNextHookEx(g_hMouseHook, nCode, wParam, lParam);
 }
 
 
@@ -141,13 +139,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         auto hInstance = (HINSTANCE) GetWindowLongPtr(hWnd, GWLP_HINSTANCE);
         addTrayIcon(hInstance, hWnd);
 
-        _hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) MouseEvent, hInstance, 0);
+        g_hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) MouseEvent, hInstance, 0);
         registerKeyboardHook(hInstance);
 
         return 0;
     } else if (msg == WM_DESTROY) {
         unregisterKeyboardHook();
-        UnhookWindowsHookEx(_hMouseHook);
+        UnhookWindowsHookEx(g_hMouseHook);
 
         deleteTrayIcon(hWnd);
         PostQuitMessage(0);

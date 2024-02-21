@@ -2,13 +2,15 @@
 // Created by whyask37 on 2024-02-16.
 //
 
-#ifndef MOUSEYLOCK_KEYHOOK_H
-#define MOUSEYLOCK_KEYHOOK_H
+#ifndef HORIZON_KEYHOOK_H
+#define HORIZON_KEYHOOK_H
 
 #include <Windows.h>
 
-extern bool _isCapsPressed;
+extern bool g_isCapsPressed;
+
 void registerKeyboardHook(HINSTANCE hInstance);
+
 void unregisterKeyboardHook();
 
-#endif //MOUSEYLOCK_KEYHOOK_H
+#endif //HORIZON_KEYHOOK_H
