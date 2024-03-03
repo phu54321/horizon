@@ -59,6 +59,9 @@ void resetDxDySum(DWORD time) {
 
 static HHOOK g_hMouseHook;
 
+// Variable for keyboard:
+extern bool g_wasMouseEventAfterKey;
+
 LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
     static POINT oldMousePoint;
 
@@ -75,6 +78,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
             g_isLButtonPressed = true;
             g_shouldClip = g_isCapsPressed;
             if (g_shouldClip) {
+                g_wasMouseEventAfterKey = true;
                 g_dxSum = g_dySum = 0;
                 clipMode = ClipMode::NONE;
             }
@@ -83,6 +87,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
         } else if (wParam == WM_LBUTTONUP && g_isLButtonPressed) {
 //            printf("[%4d %8lu] - [lbu]\n");
             if (g_shouldClip) {
+                g_wasMouseEventAfterKey = true;
                 resetDxDySum(params->time);
             }
             g_isLButtonPressed = false;
@@ -96,6 +101,7 @@ LRESULT CALLBACK MouseEvent(int nCode, WPARAM wParam, LPARAM lParam) {
 //                printf("[%4d %8lu] - [lbm]\n");
                 if (g_isLButtonPressed && g_isCapsPressed) {
 //                    printf("[%4d %8lu] - [captured]\n");
+                    g_wasMouseEventAfterKey = true;
                     auto dx = params->pt.x - oldMousePoint.x;
                     auto dy = params->pt.y - oldMousePoint.y;
                     g_dxSum += dx;
